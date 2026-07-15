@@ -356,7 +356,15 @@
     if (!data.secure_url) {
       throw new Error('Upload succeeded but no URL was returned.');
     }
-    return data.secure_url;
+
+    // Rewrite the Cloudinary URL to go through this site's own domain
+    // (see vercel.json — /img/* is proxied to Cloudinary's /image/upload/*).
+    const marker = '/image/upload/';
+    const idx = data.secure_url.indexOf(marker);
+    if (idx === -1) return data.secure_url; // fallback: raw Cloudinary URL
+
+    const pathAfterUpload = data.secure_url.slice(idx + marker.length);
+    return `${window.location.origin}/img/${pathAfterUpload}`;
   }
 
   async function handleGenerateClick() {
