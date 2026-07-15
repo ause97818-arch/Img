@@ -208,8 +208,8 @@
   // CONFIGURATION — replace with your own Cloudinary credentials.
   // See the setup guide that was provided alongside this file.
   // =====================================================================
-  const CLOUD_NAME     = 'YOUR_CLOUD_NAME';    // e.g. 'dxy1abc23'
-  const UPLOAD_PRESET  = 'YOUR_UPLOAD_PRESET'; // e.g. 'linkify_unsigned'
+  const CLOUD_NAME     = 'wdhnno7y';
+  const UPLOAD_PRESET  = 'linkify_unsigned';
   const UPLOAD_URL     = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
 
   // Validation rules
@@ -331,7 +331,7 @@
   // Upload — Cloudinary unsigned upload
   // =====================================================================
   async function uploadToCloudinary(file) {
-    if (CLOUD_NAME === 'wdhnno7y' || UPLOAD_PRESET === 'ml_default') {
+    if (CLOUD_NAME === 'YOUR_CLOUD_NAME' || UPLOAD_PRESET === 'YOUR_UPLOAD_PRESET') {
       throw new Error(
         'Cloudinary is not configured yet. Set CLOUD_NAME and UPLOAD_PRESET at the top of the <script> block.'
       );
