@@ -1,0 +1,14 @@
+/img          /index.html                                                200
+/img/*        https://res.cloudinary.com/wdhnno7y/image/upload/:splat    200
+
+/video        /video.html                                                200
+/video/*      https://res.cloudinary.com/wdhnno7y/video/upload/:splat    200
+
+/audio        /audio.html                                                200
+/audio/*      https://res.cloudinary.com/wdhnno7y/video/upload/:splat    200
+
+/sticker      /sticker.html                                              200
+/sticker/*    https://res.cloudinary.com/wdhnno7y/image/upload/:splat    200
+
+/doc          /doc.html                                                  200
+/doc/*        https://res.cloudinary.com/wdhnno7y/raw/upload/:splat      200
