@@ -331,7 +331,7 @@
   // Upload — Cloudinary unsigned upload
   // =====================================================================
   async function uploadToCloudinary(file) {
-    if (CLOUD_NAME === 'wdhnno7y' || UPLOAD_PRESET === 'linkify_unsigned') {
+    if (CLOUD_NAME === 'wdhnno7y' || UPLOAD_PRESET === 'ml_default') {
       throw new Error(
         'Cloudinary is not configured yet. Set CLOUD_NAME and UPLOAD_PRESET at the top of the <script> block.'
       );
