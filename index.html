@@ -328,43 +328,114 @@
   }
 
   // =====================================================================
-  // Upload — Cloudinary unsigned upload
+  // Client-side compression — shrinks large phone-camera photos before
+  // upload so the transfer is fast even on slow mobile connections.
+  // Skipped for GIFs (canvas would flatten animation to one frame).
   // =====================================================================
-  async function uploadToCloudinary(file) {
-    if (CLOUD_NAME === 'YOUR_CLOUD_NAME' || UPLOAD_PRESET === 'YOUR_UPLOAD_PRESET') {
-      throw new Error(
-        'Cloudinary is not configured yet. Set CLOUD_NAME and UPLOAD_PRESET at the top of the <script> block.'
-      );
-    }
+  const MAX_DIMENSION = 1920; // longest edge, in pixels
+  const JPEG_QUALITY = 0.82;
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', UPLOAD_PRESET);
+  function compressImage(file) {
+    return new Promise((resolve) => {
+      if (file.type === 'image/gif') {
+        resolve(file); // keep animated GIFs untouched
+        return;
+      }
 
-    const response = await fetch(UPLOAD_URL, { method: 'POST', body: formData });
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
 
-    if (!response.ok) {
-      let detail = `Server responded with ${response.status}.`;
-      try {
-        const body = await response.json();
-        if (body?.error?.message) detail = body.error.message;
-      } catch (_) { /* response wasn't JSON — keep default detail */ }
-      throw new Error(detail);
-    }
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
 
-    const data = await response.json();
-    if (!data.secure_url) {
-      throw new Error('Upload succeeded but no URL was returned.');
-    }
+        let { width, height } = img;
+        if (width <= MAX_DIMENSION && height <= MAX_DIMENSION && file.size < 1.5 * 1024 * 1024) {
+          resolve(file); // already small enough, skip re-encoding
+          return;
+        }
 
-    // Rewrite the Cloudinary URL to go through this site's own domain
-    // (see vercel.json — /img/* is proxied to Cloudinary's /image/upload/*).
-    const marker = '/image/upload/';
-    const idx = data.secure_url.indexOf(marker);
-    if (idx === -1) return data.secure_url; // fallback: raw Cloudinary URL
+        const scale = Math.min(1, MAX_DIMENSION / Math.max(width, height));
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
 
-    const pathAfterUpload = data.secure_url.slice(idx + marker.length);
-    return `${window.location.origin}/img/${pathAfterUpload}`;
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) { resolve(file); return; } // fall back to original on failure
+            const compressed = new File(
+              [blob],
+              file.name.replace(/\.\w+$/, '.jpg'),
+              { type: 'image/jpeg' }
+            );
+            resolve(compressed.size < file.size ? compressed : file);
+          },
+          'image/jpeg',
+          JPEG_QUALITY
+        );
+      };
+
+      img.onerror = () => resolve(file); // fall back to original if decode fails
+      img.src = objectUrl;
+    });
+  }
+
+  // =====================================================================
+  // Upload — Cloudinary unsigned upload, with live progress via XHR
+  // (fetch has no upload-progress event, so XHR is used here instead)
+  // =====================================================================
+  function uploadToCloudinary(file, onProgress) {
+    return new Promise((resolve, reject) => {
+      if (CLOUD_NAME === 'YOUR_CLOUD_NAME' || UPLOAD_PRESET === 'YOUR_UPLOAD_PRESET') {
+        reject(new Error('Cloudinary is not configured yet. Set CLOUD_NAME and UPLOAD_PRESET at the top of the <script> block.'));
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', UPLOAD_URL, true);
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      });
+
+      xhr.onload = () => {
+        let data;
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch (_) {
+          reject(new Error('Server sent an unreadable response.'));
+          return;
+        }
+
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(data?.error?.message || `Server responded with ${xhr.status}.`));
+          return;
+        }
+
+        if (!data.public_id || !data.format) {
+          reject(new Error('Upload succeeded but no URL was returned.'));
+          return;
+        }
+
+        // Short link, no version folder: origin/img/<public_id>.<format>
+        // (see vercel.json — /img/* proxies through to Cloudinary; a
+        // version segment is only needed for cache-busting overwrites,
+        // which this app never does, so it's safe to omit.)
+        resolve(`${window.location.origin}/img/${data.public_id}.${data.format}`);
+      };
+
+      xhr.onerror = () => reject(new Error('Network error — check your connection and try again.'));
+      xhr.send(formData);
+    });
   }
 
   async function handleGenerateClick() {
@@ -374,7 +445,13 @@
     setUploading(true);
 
     try {
-      const url = await uploadToCloudinary(selectedFile);
+      generateBtnLabel.textContent = 'Optimizing…';
+      const fileToUpload = await compressImage(selectedFile);
+
+      const url = await uploadToCloudinary(fileToUpload, (pct) => {
+        generateBtnLabel.textContent = `Uploading… ${pct}%`;
+      });
+
       resultLink.value = url;
       openLink.href = url;
       resultCard.classList.remove('hidden');
