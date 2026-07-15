@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Linkify — Turn any image into a permanent link</title>
+<meta name="description" content="Drop an image, get a permanent link. No accounts, no clutter." />
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Fonts: Space Grotesk (display), Inter (body), JetBrains Mono (link/code output) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink:      '#0B0E14',
+          surface:  '#12161F',
+          surface2: '#171C28',
+          line:     '#232838',
+          muted:    '#8B93A7',
+          fog:      '#E8EAF0',
+          amber:    '#F2A93B',
+          amberDim: '#B87F1F',
+          good:     '#4ADE80',
+          bad:      '#F87171',
+        },
+        fontFamily: {
+          display: ['"Space Grotesk"', 'sans-serif'],
+          body: ['Inter', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'monospace'],
+        },
+      }
+    }
+  }
+</script>
+
+<style>
+  html { scroll-behavior: smooth; }
+  body { background-color: #0B0E14; }
+
+  /* subtle grid texture on the page background */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgba(232,234,240,0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(232,234,240,0.035) 1px, transparent 1px);
+    background-size: 36px 36px;
+  }
+
+  /* blinking terminal cursor, used only in the result "echo" line */
+  .cursor-blink::after {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 1.05em;
+    margin-left: 4px;
+    background: #F2A93B;
+    vertical-align: text-bottom;
+    animation: blink 1s step-start infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* dropzone active state pulse */
+  @keyframes pulse-border {
+    0%, 100% { border-color: #F2A93B; }
+    50% { border-color: #B87F1F; }
+  }
+  .drop-active { animation: pulse-border 1.2s ease-in-out infinite; }
+
+  /* result reveal */
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .rise-in { animation: rise-in 0.4s ease-out both; }
+
+  /* spinner */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(11,14,20,0.25);
+    border-top-color: #0B0E14;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cursor-blink::after, .drop-active, .rise-in, .spinner { animation: none !important; }
+  }
+
+  ::selection { background: #F2A93B; color: #0B0E14; }
+</style>
+</head>
+
+<body class="bg-ink bg-grid text-fog font-body min-h-screen flex flex-col">
+
+  <!-- Nav -->
+  <header class="border-b border-line">
+    <div class="max-w-3xl mx-auto px-5 py-5 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-amber"></span>
+        <span class="font-display font-semibold tracking-tight text-lg">Linkify</span>
+      </div>
+      <span class="font-mono text-xs text-muted">v1.0 · client-side upload</span>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="flex-1 max-w-3xl w-full mx-auto px-5 py-14">
+
+    <!-- Hero -->
+    <section class="mb-10">
+      <p class="font-mono text-xs text-amber mb-3">$ drop image → get url</p>
+      <h1 class="font-display font-semibold text-3xl sm:text-4xl leading-tight tracking-tight text-fog">
+        Turn any image into a<br class="hidden sm:block" /> permanent link.
+      </h1>
+      <p class="text-muted mt-3 text-sm sm:text-base max-w-lg">
+        No sign-up, no gallery to manage. Upload once, paste the link anywhere — README, chat, a bot's response payload.
+      </p>
+    </section>
+
+    <!-- Upload card -->
+    <section class="bg-surface border border-line rounded-2xl p-5 sm:p-6">
+
+      <!-- Dropzone -->
+      <div id="dropzone"
+           class="relative border-2 border-dashed border-line rounded-xl px-6 py-10 sm:py-14 text-center cursor-pointer transition-colors hover:border-amberDim">
+        <input id="fileInput" type="file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" class="hidden" />
+
+        <div id="dropzoneEmpty">
+          <div class="mx-auto mb-4 w-12 h-12 rounded-lg bg-surface2 border border-line flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-amber" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9m0 0-3 3m3-3 3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3.75 3.75 0 0 1 4.276 4.792A4.5 4.5 0 0 1 18 19.5H6.75Z" />
+            </svg>
+          </div>
+          <p class="text-sm text-fog font-medium">Drag and drop an image, or <span class="text-amber underline underline-offset-2">browse</span></p>
+          <p class="text-xs text-muted mt-2 font-mono">PNG · JPG · GIF · WEBP — max 10MB</p>
+        </div>
+
+        <!-- Preview (shown after a file is selected) -->
+        <div id="dropzonePreview" class="hidden items-center gap-4 text-left">
+          <img id="previewImg" src="" alt="Selected image preview" class="w-20 h-20 object-cover rounded-lg border border-line shrink-0" />
+          <div class="min-w-0 flex-1">
+            <p id="fileName" class="text-sm text-fog font-medium truncate"></p>
+            <p id="fileMeta" class="text-xs text-muted font-mono mt-1"></p>
+            <button id="changeFileBtn" type="button" class="text-xs text-amber underline underline-offset-2 mt-2">Choose a different image</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inline error -->
+      <p id="validationError" class="hidden mt-3 text-sm text-bad font-medium"></p>
+
+      <!-- Generate button -->
+      <button id="generateBtn" type="button" disabled
+        class="mt-5 w-full sm:w-auto sm:px-8 flex items-center justify-center gap-2 bg-amber disabled:bg-surface2 disabled:text-muted disabled:cursor-not-allowed text-ink font-semibold text-sm rounded-lg px-6 py-3 transition-colors hover:bg-[#e59c2e] active:scale-[0.99]">
+        <span id="generateBtnLabel">Generate Permanent Link</span>
+        <span id="generateSpinner" class="hidden spinner"></span>
+      </button>
+
+      <!-- Upload error -->
+      <div id="uploadError" class="hidden mt-4 rounded-lg border border-bad/30 bg-bad/10 px-4 py-3">
+        <p class="text-sm text-bad font-medium">Upload failed</p>
+        <p id="uploadErrorDetail" class="text-xs text-bad/80 font-mono mt-1"></p>
+      </div>
+
+      <!-- Result -->
+      <div id="resultCard" class="hidden rise-in mt-5 rounded-lg border border-line bg-surface2 px-4 py-4">
+        <p class="font-mono text-xs text-muted mb-2">
+          <span class="text-good">✓</span> upload complete<span id="echoCursor" class="cursor-blink"></span>
+        </p>
+        <div class="flex items-center gap-2">
+          <input id="resultLink" type="text" readonly
+            class="flex-1 min-w-0 bg-ink border border-line rounded-md px-3 py-2.5 text-sm font-mono text-fog truncate focus:outline-none focus:border-amberDim" />
+          <button id="copyBtn" type="button"
+            class="shrink-0 bg-surface border border-line hover:border-amberDim text-fog text-sm font-medium rounded-md px-4 py-2.5 transition-colors">
+            Copy
+          </button>
+        </div>
+        <a id="openLink" href="#" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 text-xs text-amber underline underline-offset-2">Open image in new tab →</a>
+      </div>
+
+    </section>
+
+    <!-- Toast -->
+    <div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-fog text-ink text-sm font-medium px-4 py-2.5 rounded-lg shadow-lg">
+      Copied to clipboard
+    </div>
+
+  </main>
+
+  <footer class="border-t border-line">
+    <div class="max-w-3xl mx-auto px-5 py-6 text-xs text-muted font-mono">
+      images are stored via your configured Cloudinary account, not by this site
+    </div>
+  </footer>
+
+<script>
+(() => {
+  "use strict";
+
+  // =====================================================================
+  // CONFIGURATION — replace with your own Cloudinary credentials.
+  // See the setup guide that was provided alongside this file.
+  // =====================================================================
+  const CLOUD_NAME     = 'YOUR_CLOUD_NAME';    // e.g. 'dxy1abc23'
+  const UPLOAD_PRESET  = 'YOUR_UPLOAD_PRESET'; // e.g. 'linkify_unsigned'
+  const UPLOAD_URL     = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
+
+  // Validation rules
+  const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+  const ALLOWED_TYPES  = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+  // =====================================================================
+  // DOM references
+  // =====================================================================
+  const dropzone         = document.getElementById('dropzone');
+  const fileInput         = document.getElementById('fileInput');
+  const dropzoneEmpty     = document.getElementById('dropzoneEmpty');
+  const dropzonePreview   = document.getElementById('dropzonePreview');
+  const previewImg        = document.getElementById('previewImg');
+  const fileNameEl        = document.getElementById('fileName');
+  const fileMetaEl        = document.getElementById('fileMeta');
+  const changeFileBtn     = document.getElementById('changeFileBtn');
+  const validationError   = document.getElementById('validationError');
+  const generateBtn       = document.getElementById('generateBtn');
+  const generateBtnLabel  = document.getElementById('generateBtnLabel');
+  const generateSpinner   = document.getElementById('generateSpinner');
+  const uploadError       = document.getElementById('uploadError');
+  const uploadErrorDetail = document.getElementById('uploadErrorDetail');
+  const resultCard        = document.getElementById('resultCard');
+  const resultLink        = document.getElementById('resultLink');
+  const openLink           = document.getElementById('openLink');
+  const copyBtn            = document.getElementById('copyBtn');
+  const toast               = document.getElementById('toast');
+
+  let selectedFile = null;
+  let toastTimer = null;
+
+  // =====================================================================
+  // Helpers
+  // =====================================================================
+  function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function showValidationError(message) {
+    validationError.textContent = message;
+    validationError.classList.remove('hidden');
+  }
+
+  function clearValidationError() {
+    validationError.classList.add('hidden');
+    validationError.textContent = '';
+  }
+
+  function resetResult() {
+    resultCard.classList.add('hidden');
+    uploadError.classList.add('hidden');
+  }
+
+  function validateFile(file) {
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return 'Unsupported file type. Please choose a PNG, JPG, GIF, or WEBP image.';
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      return `That file is ${formatBytes(file.size)} — the limit is 10MB.`;
+    }
+    return null;
+  }
+
+  function handleFileSelected(file) {
+    clearValidationError();
+    resetResult();
+
+    const error = validateFile(file);
+    if (error) {
+      showValidationError(error);
+      selectedFile = null;
+      generateBtn.disabled = true;
+      return;
+    }
+
+    selectedFile = file;
+    generateBtn.disabled = false;
+
+    // Show preview
+    const objectUrl = URL.createObjectURL(file);
+    previewImg.src = objectUrl;
+    fileNameEl.textContent = file.name;
+    fileMetaEl.textContent = `${formatBytes(file.size)} · ${file.type.replace('image/', '').toUpperCase()}`;
+
+    dropzoneEmpty.classList.add('hidden');
+    dropzonePreview.classList.remove('hidden');
+    dropzonePreview.classList.add('flex');
+  }
+
+  function resetDropzone() {
+    selectedFile = null;
+    fileInput.value = '';
+    generateBtn.disabled = true;
+    dropzonePreview.classList.add('hidden');
+    dropzonePreview.classList.remove('flex');
+    dropzoneEmpty.classList.remove('hidden');
+    clearValidationError();
+    resetResult();
+  }
+
+  function setUploading(isUploading) {
+    generateBtn.disabled = isUploading;
+    generateBtnLabel.textContent = isUploading ? 'Uploading…' : 'Generate Permanent Link';
+    generateSpinner.classList.toggle('hidden', !isUploading);
+    dropzone.classList.toggle('drop-active', isUploading);
+  }
+
+  function showToast(message) {
+    toast.textContent = message;
+    toast.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.add('hidden'), 1800);
+  }
+
+  // =====================================================================
+  // Upload — Cloudinary unsigned upload
+  // =====================================================================
+  async function uploadToCloudinary(file) {
+    if (CLOUD_NAME === 'wdhnno7y' || UPLOAD_PRESET === 'linkify_unsigned') {
+      throw new Error(
+        'Cloudinary is not configured yet. Set CLOUD_NAME and UPLOAD_PRESET at the top of the <script> block.'
+      );
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', UPLOAD_PRESET);
+
+    const response = await fetch(UPLOAD_URL, { method: 'POST', body: formData });
+
+    if (!response.ok) {
+      let detail = `Server responded with ${response.status}.`;
+      try {
+        const body = await response.json();
+        if (body?.error?.message) detail = body.error.message;
+      } catch (_) { /* response wasn't JSON — keep default detail */ }
+      throw new Error(detail);
+    }
+
+    const data = await response.json();
+    if (!data.secure_url) {
+      throw new Error('Upload succeeded but no URL was returned.');
+    }
+    return data.secure_url;
+  }
+
+  async function handleGenerateClick() {
+    if (!selectedFile) return;
+
+    resetResult();
+    setUploading(true);
+
+    try {
+      const url = await uploadToCloudinary(selectedFile);
+      resultLink.value = url;
+      openLink.href = url;
+      resultCard.classList.remove('hidden');
+    } catch (err) {
+      uploadErrorDetail.textContent = err.message || 'Something went wrong. Please try again.';
+      uploadError.classList.remove('hidden');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // =====================================================================
+  // Copy to clipboard
+  // =====================================================================
+  async function handleCopyClick() {
+    const value = resultLink.value;
+    if (!value) return;
+
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (_) {
+      // Fallback for browsers without Clipboard API access
+      resultLink.select();
+      document.execCommand('copy');
+    }
+
+    const original = copyBtn.textContent;
+    copyBtn.textContent = 'Copied!';
+    copyBtn.classList.add('border-good', 'text-good');
+    showToast('Link copied to clipboard');
+
+    setTimeout(() => {
+      copyBtn.textContent = original;
+      copyBtn.classList.remove('border-good', 'text-good');
+    }, 1500);
+  }
+
+  // =====================================================================
+  // Event wiring
+  // =====================================================================
+  dropzone.addEventListener('click', (e) => {
+    // avoid double-trigger when clicking "choose a different image"
+    if (e.target === changeFileBtn) return;
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) handleFileSelected(file);
+  });
+
+  changeFileBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resetDropzone();
+    fileInput.click();
+  });
+
+  ['dragenter', 'dragover'].forEach((evt) => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.add('drop-active');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach((evt) => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (evt === 'dragleave') return; // keep active state consistent while dragging within the box
+      dropzone.classList.remove('drop-active');
+    });
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileSelected(file);
+  });
+
+  generateBtn.addEventListener('click', handleGenerateClick);
+  copyBtn.addEventListener('click', handleCopyClick);
+})();
+</script>
+
+</body>
+</html>
