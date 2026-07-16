@@ -1,0 +1,10 @@
+name = "linkify"
+pages_build_output_dir = "."
+compatibility_date = "2026-07-01"
+
+# Optional: set your Cloudinary cloud name as an environment variable
+# instead of relying on the hardcoded fallback inside the function files.
+# You can also set this in the Cloudflare dashboard under
+# Pages → your project → Settings → Environment variables.
+[vars]
+CLOUD_NAME = "wdhnno7y"
